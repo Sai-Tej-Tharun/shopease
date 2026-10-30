@@ -1,0 +1,77 @@
+x-common-env: &common-env
+  SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
+  INTERNAL_KEY: ${INTERNAL_KEY:-internal-dev-key}
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql-init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  auth-service:
+    build: ./services/auth_service
+    environment:
+      <<: *common-env
+      DATABASE_URL: mysql+pymysql://root:root@mysql:3306/auth_db
+    depends_on: { mysql: { condition: service_healthy } }
+    ports: ["8001:8000"]
+
+  user-service:
+    build: ./services/user_service
+    environment:
+      <<: *common-env
+      DATABASE_URL: mysql+pymysql://root:root@mysql:3306/user_db
+    depends_on: { mysql: { condition: service_healthy } }
+    ports: ["8002:8000"]
+
+  product-service:
+    build: ./services/product_service
+    environment:
+      <<: *common-env
+      DATABASE_URL: mysql+pymysql://root:root@mysql:3306/product_db
+    depends_on: { mysql: { condition: service_healthy } }
+    ports: ["8003:8000"]
+
+  payment-service:
+    build: ./services/payment_service
+    environment:
+      <<: *common-env
+      DATABASE_URL: mysql+pymysql://root:root@mysql:3306/payment_db
+    depends_on: { mysql: { condition: service_healthy } }
+    ports: ["8005:8000"]
+
+  order-service:
+    build: ./services/order_service
+    environment:
+      <<: *common-env
+      DATABASE_URL: mysql+pymysql://root:root@mysql:3306/order_db
+      PRODUCT_SERVICE_URL: http://product-service:8000
+      PAYMENT_SERVICE_URL: http://payment-service:8000
+    depends_on:
+      mysql: { condition: service_healthy }
+      product-service: { condition: service_started }
+      payment-service: { condition: service_started }
+    ports: ["8004:8000"]
+
+  api-gateway:
+    build: ./services/api_gateway
+    environment:
+      <<: *common-env
+      AUTH_SERVICE_URL: http://auth-service:8000
+      USER_SERVICE_URL: http://user-service:8000
+      PRODUCT_SERVICE_URL: http://product-service:8000
+      ORDER_SERVICE_URL: http://order-service:8000
+      PAYMENT_SERVICE_URL: http://payment-service:8000
+    depends_on: [auth-service, user-service, product-service, order-service, payment-service]
+    ports: ["8000:8000"]
+
+volumes:
+  mysql_data:
